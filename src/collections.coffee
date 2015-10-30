@@ -1,4 +1,4 @@
-class window.Database
+class Database
 	constructor: (@options = {}) ->
 		# default options
 		@options.prefix  = @options.prefix  ? "__COLLECTION__"
@@ -25,7 +25,7 @@ class window.Database
 
 	drop: (collectionName) ->
 		delete @data[collectionName]
-		localStorage.removeItem(@options.prefix + collectionName)
+		delete localStorage[@options.prefix + collectionName]
 
 
 	commit: (collectionName) ->
@@ -37,7 +37,7 @@ class window.Database
 
 
 
-class window.Collection
+class Collection
 	constructor: (@name, @database) ->
 		# create the collection if it does not exist
 		if not @database.data[@name]
@@ -63,23 +63,32 @@ class window.Collection
 		result = []
 		for id, record of @database.data[@name].records
 			result.push(
-				"id": id
+				"id": parseInt(id)
 				"record": DBUtils.clone(@database.data[@name].records[id])
 			)
 
-		new RecordSet(result)
+		return new RecordSet(result)
 
 
 	index: (indexSpec) ->
 		@indices[indexSpec] = new Index(@database, @name, indexSpec)
 
 
-	# attention when writing funcFilter(key) -- argument is ALWAYS a string
+	get: (id) ->
+		record = DBUtils.clone(@database.data[@name].records[id])
+
+		if DBUtils.isEmpty(record)
+			return null
+		else
+			return "id": parseInt(id), "record": record
+
+
+	# funcFilter(key) -- argument is an excerpt from the record with correct types
 	query: (indexSpec, funcFilter) ->
 		index = @database.data[@name].indices[indexSpec]
 		records = []
 		for key of index
-			if funcFilter(key)
+			if funcFilter(JSON.parse(key))
 				for id in index[key]
 					records.push(
 						"id": id
@@ -143,24 +152,23 @@ class window.Collection
 
 
 
-class window.Index
+class Index
 	constructor: (@database, @name, @indexSpec) ->
-		if not @database.data[@name].indices[@indexSpec]
-			@database.data[@name].indices[@indexSpec] = {}
+		@database.data[@name].indices[@indexSpec] = {}
 
-			for id, record of @database.data[@name].records
-				@add(id, record)
+		for id, record of @database.data[@name].records
+			@add(id, record)
 
 
 	value: (record) ->
-		result = []
+		result = {}
 		for field in @indexSpec.split(",")
 			if not field in record
 				return null
 			else
-				result.push(record[field])
+				result[field] = record[field]
 
-		return result.join(",")
+		return JSON.stringify(result)
 
 
 	add: (id, record) ->
@@ -181,10 +189,10 @@ class window.Index
 
 
 
-class window.RecordSet
+class RecordSet
 	constructor: (@records) ->
 
-		@length = @records.length
+		@length = parseInt(@records.length)
 		@cursor = 0
 
 
@@ -192,6 +200,9 @@ class window.RecordSet
 
 
 	next: ->
+		if @cursor >= @length
+			return undefined
+
 		@records[@cursor++]
 
 
@@ -204,7 +215,7 @@ class window.RecordSet
 
 
 	limit: (num) ->
-		new RecordSet(@records[0 .. num])
+		new RecordSet(@records[0 .. num - 1])
 
 
 	# funcSort({"id": 0, "record": { ... }})
@@ -238,16 +249,21 @@ class window.RecordSet
 
 
 
-class window.DBUtils
+class DBUtils
 	@clone: (record) ->
 		target = {}
 		for own key, value of record
 			target[key] = value
 		return target
 
+	@isEmpty: (obj) ->
+		for key, value of obj
+			return false
+		return true
 
 
-class window.DatabaseFunctions
+
+class DatabaseFunctions
 	@sortAscending: (field) ->
 		(a, b) ->
 			if      a.record[field] > b.record[field] then  1
@@ -262,3 +278,16 @@ class window.DatabaseFunctions
 
 	@is: (field, value) ->
 		(record) -> record.record[field] is value
+
+
+if exports?
+	exports.Database = Database
+	exports.fn =
+		is: DatabaseFunctions.is
+		sortAscending: DatabaseFunctions.sortAscending
+		sortDescending: DatabaseFunctions.sortDescending
+
+if window?
+	window.Database = Database
+	window.db = new Database()
+	window.c = db.collection("test")
