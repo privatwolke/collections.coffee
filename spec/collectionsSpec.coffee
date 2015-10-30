@@ -18,18 +18,14 @@ describe "Test Suite", ->
 		db = new collections.Database()
 		c = db.collection("test")
 
-
 	afterEach ->
 		db.drop("test")
-
 
 	addOneRecord = ->
 		c.add(record)
 
-
 	addSomeRecords = ->
-		for r in records
-			c.add(r)
+		c.add(records)
 
 
 	it "should create a database instance", ->
@@ -60,8 +56,11 @@ describe "Test Suite", ->
 
 
 	it "should remove a record from a collection", ->
-		record = "name": "Bob", "age": 26
-		id = c.add(record)
+		id = addOneRecord()
+		expect(c.all().length).toBe(1)
+		c.remove(id)
+		expect(c.all().length).toBe(0)
+		expect(c.get(id)).toBeNull()
 
 
 	it "should find an added record in all records", ->
@@ -71,6 +70,11 @@ describe "Test Suite", ->
 		expect(result.records.length).toEqual(result.length)
 		expect(result.cursor).toBe(0)
 		expect(result.records[0].record).toEqual(record)
+
+
+	it "should add multiple records", ->
+		addSomeRecords()
+		expect(c.all().length).toBe(records.length)
 
 
 	it "should iterate correctly", ->
@@ -111,6 +115,12 @@ describe "Test Suite", ->
 		expect(result.length).toBe(1)
 		expect(result.records[0].record["name"]).toBe("Alice")
 		expect(result.records[0].record["age"]).toBe(24)
+
+
+	it "should index already present records", ->
+		addSomeRecords()
+		c.index("age")
+		expect(c.query("age", -> true).length).toBeGreaterThan(0)
 
 
 	it "should query an index with multiple keys", ->
@@ -157,3 +167,47 @@ describe "Test Suite", ->
 		result = c.all().filter(collections.fn.is("name", "Bob"))
 		expect(result.length).toBe(1)
 		expect(result.records[0].record["name"]).toBe("Bob")
+
+
+	it "should update a record correctly", ->
+		id = addOneRecord()
+		record = c.all().records[0]
+		record.record["name"] = "Gemma"
+		c.update(record)
+
+		updatedRecord = c.all().records[0]
+		expect(updatedRecord.id).toBe(id)
+		expect(updatedRecord.record["name"]).toBe("Gemma")
+		expect(updatedRecord.record["age"]).toBe(record.record["age"])
+
+
+	it "should fail to update a record without id", ->
+		test = -> c.update(record: name: "Gemma", age: 24)
+		expect(test).toThrow("Can't update a record without an 'id' property.")
+
+
+	it "should fail to update a non existant record", ->
+		test = -> c.update(id: 1, record: name: "Gemma", age: 24)
+		expect(test).toThrow("Can't update this record. It's not in the database.")
+
+
+	it "should not complain about removing non existant records", ->
+		expect(c.all().length).toBe(0)
+		expect(-> c.remove(1)).not.toThrow()
+
+
+	it "should pass an object to filter function when querying an index", ->
+		addSomeRecords()
+		c.index("name")
+		fns = fn: (key) -> true
+		spyOn(fns, 'fn')
+		c.query("name", fns.fn)
+		expect(fns.fn).toHaveBeenCalledWith(name: "Bob")
+
+
+	it "should not change a record in the database without explicit update", ->
+		id = addOneRecord()
+		savedRecord = c.get(id)
+		name = savedRecord.record["name"]
+		savedRecord.record["name"] = "George"
+		expect(c.get(id).record.name).not.toBe("George")

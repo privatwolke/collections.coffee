@@ -10,15 +10,15 @@
     "grunt-contrib-clean": "^0.6.0",
     "grunt-contrib-coffee": "^0.13.0",
     "grunt-jasmine-bundle": "^0.3.0",
-    "grunt-jasmine-node-coffee": "^0.1.4",
     "jit-grunt": "^0.9.1",
     "node-localstorage": "^0.6.0",
+    "performance-now": "^0.2.0",
     "time-grunt": "^1.2.2"
   },
-	"engines": {
-		"node": ">=0.10.0"
-	},
-	"scripts": {
-  	"test": "grunt build test"
-	}
+  "engines": {
+    "node": ">=0.10.0"
+  },
+  "scripts": {
+    "test": "grunt build test"
+  }
 }

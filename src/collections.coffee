@@ -80,7 +80,7 @@ class Collection
 		if DBUtils.isEmpty(record)
 			return null
 		else
-			return "id": parseInt(id), "record": record
+			return "id": id, "record": record
 
 
 	# funcFilter(key) -- argument is an excerpt from the record with correct types
@@ -107,22 +107,36 @@ class Collection
 
 
 	add: (record) ->
-		id = @id()
-		@database.data[@name].records[id] = DBUtils.clone(record)
+		records = DBUtils.toArray(record)
+		ids = []
 
-		# update all indices
-		for indexSpec of @indices
-			@indices[indexSpec].add(id, record)
+		for r in records
+			id = @id()
+			@database.data[@name].records[id] = DBUtils.clone(r)
+
+			# update all indices
+			for indexSpec of @indices
+				@indices[indexSpec].add(id, r)
+
+			ids.push(id)
 
 		# commit the changes to localStorage
 		@commit()
 
-		return id
+		return if records.length is 1 then ids[0] else ids
 
 
 	update: (record) ->
 		id = record.id
 		record = record.record
+
+		# refuse to update something without an id
+		if not id?
+			throw new Error("Can't update a record without an 'id' property.")
+
+		# refuse to update something that is not already in the database
+		if not @database.data[@name].records[id]?
+			throw new Error("Can't update this record. It's not in the database.")
 
 		# update all indices
 		for indexSpec of @indices
@@ -261,6 +275,12 @@ class DBUtils
 			return false
 		return true
 
+	@toArray: (o) ->
+		if Object.prototype.toString.call(o) is "[object Array]"
+			return o
+		else
+			return [o]
+
 
 
 class DatabaseFunctions
@@ -286,8 +306,3 @@ if exports?
 		is: DatabaseFunctions.is
 		sortAscending: DatabaseFunctions.sortAscending
 		sortDescending: DatabaseFunctions.sortDescending
-
-if window?
-	window.Database = Database
-	window.db = new Database()
-	window.c = db.collection("test")
