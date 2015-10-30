@@ -14,5 +14,11 @@
     "jit-grunt": "^0.9.1",
     "node-localstorage": "^0.6.0",
     "time-grunt": "^1.2.2"
-  }
+  },
+	"engines": {
+		"node": ">=0.10.0"
+	},
+	"scripts": {
+  	"test": "grunt build test"
+	}
 }
