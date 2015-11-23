@@ -5,6 +5,7 @@ class Database
 		@options.persist = @options.persist ? true
 
 		@data = {}
+		@filters = {in: [], out: []}
 
 		for key of localStorage
 			if key[0 .. @options.prefix.length - 1] is @options.prefix
@@ -36,6 +37,20 @@ class Database
 		return true
 
 
+	__addFilters: (record) ->
+		for fn in @filters.in
+			record = fn(record)
+
+		return record
+
+
+	__removeFilters: (record) ->
+		for fn in @filters.out
+			record = fn(record)
+
+		return record
+
+
 
 class Collection
 	constructor: (@name, @database) ->
@@ -64,7 +79,7 @@ class Collection
 		for id, record of @database.data[@name].records
 			result.push(
 				"id": parseInt(id)
-				"record": DBUtils.clone(@database.data[@name].records[id])
+				"record": @database.__removeFilters(record)
 			)
 
 		return new RecordSet(result)
@@ -72,6 +87,7 @@ class Collection
 
 	index: (indexSpec) ->
 		@indices[indexSpec] = new Index(@database, @name, indexSpec)
+		return @indices[indexSpec]
 
 
 	get: (id) ->
@@ -80,26 +96,7 @@ class Collection
 		if DBUtils.isEmpty(record)
 			return null
 		else
-			return "id": id, "record": record
-
-
-	# funcFilter(key) -- argument is an excerpt from the record with correct types
-	query: (indexSpec, funcFilter) ->
-		index = @database.data[@name].indices[indexSpec]
-		records = []
-		for key of index
-			if funcFilter(JSON.parse(key))
-				for id in index[key]
-					records.push(
-						"id": id
-						"record": DBUtils.clone(@database.data[@name].records[id])
-					)
-
-		return new RecordSet(records)
-
-
-	filter: (funcFilter) ->
-		new RecordSet(@all()).filter(funcFilter)
+			return "id": id, "record": @database.__removeFilters(record)
 
 
 	sort: (funcFilter) ->
@@ -112,7 +109,9 @@ class Collection
 
 		for r in records
 			id = @id()
-			@database.data[@name].records[id] = DBUtils.clone(r)
+			@database.data[@name].records[id] = @database.__addFilters(
+				DBUtils.clone(r)
+			)
 
 			# update all indices
 			for indexSpec of @indices
@@ -143,7 +142,9 @@ class Collection
 			@indices[indexSpec].remove(id)
 			@indices[indexSpec].add(id, record)
 
-		@database.data[@name].records[id] = DBUtils.clone(record)
+		@database.data[@name].records[id] = @database.__addFilters(
+			DBUtils.clone(record)
+		)
 
 		# commit the changes to localStorage
 		@commit()
@@ -200,6 +201,23 @@ class Index
 		value = @value(record)
 		index = @database.data[@name].indices[@indexSpec][value].indexOf(id)
 		@database.data[@name].indices[@indexSpec][value].splice(index, 1)
+
+
+	# funcFilter(key) -- argument is an excerpt from the record with correct types
+	query: (funcFilter) ->
+		index = @database.data[@name].indices[@indexSpec]
+		records = []
+		for key of index
+			if funcFilter(JSON.parse(key))
+				for id in index[key]
+					records.push(
+						"id": id
+						"record": @database.__removeFilters(
+							DBUtils.clone(@database.data[@name].records[id])
+						)
+					)
+
+		return new RecordSet(records)
 
 
 

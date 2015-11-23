@@ -108,10 +108,10 @@ describe "Test Suite", ->
 
 
 	it "should query an index", ->
-		c.index("name")
+		idx = c.index("name")
 		addSomeRecords()
 
-		result = c.query("name", (key) -> key.name is "Alice")
+		result = idx.query((key) -> key.name is "Alice")
 		expect(result.length).toBe(1)
 		expect(result.records[0].record["name"]).toBe("Alice")
 		expect(result.records[0].record["age"]).toBe(24)
@@ -119,15 +119,15 @@ describe "Test Suite", ->
 
 	it "should index already present records", ->
 		addSomeRecords()
-		c.index("age")
-		expect(c.query("age", -> true).length).toBeGreaterThan(0)
+		idx = c.index("age")
+		expect(idx.query(-> true).length).toBeGreaterThan(0)
 
 
 	it "should query an index with multiple keys", ->
-		c.index("name,age")
+		idx = c.index("name,age")
 		addSomeRecords()
 
-		result = c.query("name,age", (key) -> key.name is "Alice" and key.age is 24)
+		result = idx.query((key) -> key.name is "Alice" and key.age is 24)
 		expect(result.length).toBe(1)
 		expect(result.records[0].record["name"]).toBe("Alice")
 		expect(result.records[0].record["age"]).toBe(24)
@@ -198,10 +198,10 @@ describe "Test Suite", ->
 
 	it "should pass an object to filter function when querying an index", ->
 		addSomeRecords()
-		c.index("name")
+		idx = c.index("name")
 		fns = fn: (key) -> true
 		spyOn(fns, 'fn')
-		c.query("name", fns.fn)
+		idx.query(fns.fn)
 		expect(fns.fn).toHaveBeenCalledWith(name: "Bob")
 
 
