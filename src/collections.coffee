@@ -1,3 +1,14 @@
+iterator = `function*(arr) {
+  var i, len, results, value;
+  results = [];
+  for (i = 0, len = arr.length; i < len; i++) {
+    value = arr[i];
+    results.push((yield value));
+  }
+  return results;
+};`
+
+
 class Database
 	constructor: (@options = {}) ->
 		# default options
@@ -7,48 +18,53 @@ class Database
 		@data = {}
 		@filters = {in: [], out: []}
 
-		for key of localStorage
-			if key[0 .. @options.prefix.length - 1] is @options.prefix
-				collection = JSON.parse(localStorage[key])
-				@data[key[@options.prefix.length .. key.length]] = collection
+
+	initialize: ->
+		new Promise (resolve) =>
+			if @options.persist
+				for key of localStorage
+					if key[0 .. @options.prefix.length - 1] is @options.prefix
+						collection = JSON.parse(localStorage[key])
+						@data[key[@options.prefix.length .. key.length]] = collection
+
+			resolve(@)
 
 
 	collection: (name) ->
-		new Collection(name, @)
+		new Promise (resolve) =>
+			resolve(new Collection(name, @))
 
 
 	collections: ->
-		result = {}
-		for key of @data
-			result[key] = new Collection(key, @)
-		return result
+		new Promise (resolve) =>
+			result = {}
+			for key of @data
+				result[key] = new Collection(key, @)
+			resolve(result)
 
 
 	drop: (collectionName) ->
-		delete @data[collectionName]
-		delete localStorage[@options.prefix + collectionName]
+		new Promise (resolve) =>
+			delete @data[collectionName]
+			delete localStorage[@options.prefix + collectionName]
+			resolve()
 
 
 	commit: (collectionName) ->
-		if @options.persist
-			collection = JSON.stringify(@data[collectionName])
-			localStorage[@options.prefix + collectionName] = collection
+		new Promise (resolve) =>
+			if @options.persist
+				collection = JSON.stringify(@data[collectionName])
+				localStorage[@options.prefix + collectionName] = collection
 
-		return true
-
-
-	__addFilters: (record) ->
-		for fn in @filters.in
-			record = fn(record)
-
-		return record
+			resolve(true)
 
 
-	__removeFilters: (record) ->
-		for fn in @filters.out
-			record = fn(record)
+	__addFilters: (id, record) ->
+		DBUtils.applyFilters(id, record, @filters.in)
 
-		return record
+
+	__removeFilters: (id, record) ->
+		DBUtils.applyFilters(id, record, @filters.out)
 
 
 
@@ -75,95 +91,102 @@ class Collection
 
 
 	all: ->
-		result = []
-		for id, record of @database.data[@name].records
-			result.push(
-				"id": parseInt(id)
-				"record": @database.__removeFilters(record)
-			)
+		new Promise (resolve) =>
+			promises = []
+			for id, record of @database.data[@name].records
+				promises.push @database.__removeFilters(id, record)
+					.then (result) ->
+						return {
+							"id": parseInt(result.id)
+							"record": result.record
+						}
 
-		return new RecordSet(result)
+			Promise.all(promises)
+				.then (values) ->
+					resolve(new RecordSet(values))
 
 
 	index: (indexSpec) ->
-		@indices[indexSpec] = new Index(@database, @name, indexSpec)
-		return @indices[indexSpec]
+		new Promise (resolve) =>
+			@indices[indexSpec] = new Index(@database, @name, indexSpec)
+			resolve(@indices[indexSpec])
 
 
 	get: (id) ->
-		record = DBUtils.clone(@database.data[@name].records[id])
+		new Promise (resolve) =>
+			record = DBUtils.clone(@database.data[@name].records[id])
 
-		if DBUtils.isEmpty(record)
-			return null
-		else
-			return "id": id, "record": @database.__removeFilters(record)
-
-
-	sort: (funcFilter) ->
-		new RecordSet(@all()).sort(funcSort)
+			if DBUtils.isEmpty(record)
+				resolve(null)
+			else
+				@database.__removeFilters(id, record)
+					.then (result) ->
+						resolve(id: result.id, record: result.record)
 
 
 	add: (record) ->
-		records = DBUtils.toArray(record)
-		ids = []
+		new Promise (resolve) =>
+			records = DBUtils.toArray(record)
+			promises = []
+			ids = []
 
-		for r in records
-			id = @id()
-			@database.data[@name].records[id] = @database.__addFilters(
-				DBUtils.clone(r)
-			)
+			for r in records
+				promises.push @database.__addFilters(@id(), DBUtils.clone(r))
+					.then (result) =>
+						id = result.id
+						@database.data[@name].records[id] = result.record
 
-			# update all indices
-			for indexSpec of @indices
-				@indices[indexSpec].add(id, r)
+						# update all indices
+						for indexSpec of @indices
+							@indices[indexSpec].add(id, result.original)
 
-			ids.push(id)
+						return id
 
-		# commit the changes to localStorage
-		@commit()
-
-		return if records.length is 1 then ids[0] else ids
+			Promise.all(promises)
+				.then (values) =>
+					ids = values
+					@commit()
+				.then ->
+					resolve(if ids.length is 1 then ids[0] else ids)
 
 
 	update: (record) ->
-		id = record.id
-		record = record.record
+		new Promise (resolve, reject) =>
+			id = record.id
+			record = record.record
 
-		# refuse to update something without an id
-		if not id?
-			throw new Error("Can't update a record without an 'id' property.")
+			# refuse to update something without an id
+			if not id?
+				reject(new Error("Can't update a record without an 'id' property."))
 
-		# refuse to update something that is not already in the database
-		if not @database.data[@name].records[id]?
-			throw new Error("Can't update this record. It's not in the database.")
+			# refuse to update something that is not already in the database
+			if not @database.data[@name].records[id]?
+				reject(new Error("Can't update this record. It's not in the database."))
 
-		# update all indices
-		for indexSpec of @indices
-			@indices[indexSpec].remove(id)
-			@indices[indexSpec].add(id, record)
+			@database.__addFilters(id, DBUtils.clone(record))
+				.then (result) =>
+					@database.data[@name].records[result.id] = result.record
+					# update all indices
+					for indexSpec of @indices
+						@indices[indexSpec].remove(result.id)
+						@indices[indexSpec].add(result.id, result.original)
 
-		@database.data[@name].records[id] = @database.__addFilters(
-			DBUtils.clone(record)
-		)
+					@commit()
 
-		# commit the changes to localStorage
-		@commit()
-
-		return id
+				.then -> resolve(id)
 
 
 	remove: (id) ->
-		# update indices
-		for index of @indices
-			@indices[index].remove(id)
+		new Promise (resolve) =>
+			# update indices
+			for index of @indices
+				@indices[index].remove(id)
 
-		# remove from the datastore
-		delete @database.data[@name].records[id]
+			# remove from the datastore
+			delete @database.data[@name].records[id]
 
-		# commit the changes to localStorage
-		@commit()
-
-		return true
+			# commit the changes to localStorage
+			@commit().then -> resolve(true)
 
 
 
@@ -205,19 +228,24 @@ class Index
 
 	# funcFilter(key) -- argument is an excerpt from the record with correct types
 	query: (funcFilter) ->
-		index = @database.data[@name].indices[@indexSpec]
-		records = []
-		for key of index
-			if funcFilter(JSON.parse(key))
-				for id in index[key]
-					records.push(
-						"id": id
-						"record": @database.__removeFilters(
-							DBUtils.clone(@database.data[@name].records[id])
-						)
-					)
+		new Promise (resolve) =>
+			index = @database.data[@name].indices[@indexSpec]
+			promises = []
 
-		return new RecordSet(records)
+			for key of index
+				if funcFilter(JSON.parse(key))
+					for id in index[key]
+						promises.push @database.__removeFilters(
+							id, DBUtils.clone(@database.data[@name].records[id])
+						).then (result) ->
+							return {
+								"id": result.id
+								"record": result.record
+							}
+
+			Promise.all(promises)
+				.then (records) ->
+					resolve(new RecordSet(records))
 
 
 
@@ -298,6 +326,25 @@ class DBUtils
 			return o
 		else
 			return [o]
+
+	@applyFilters = (id, record, fns) ->
+		fns = iterator(fns)
+		fn = fns.next()
+		original = DBUtils.clone(record)
+
+		recurse = (fn, record) ->
+			fn.value(record)
+				.then (record) ->
+					fn = fns.next()
+					if not fn.done
+						return recurse(fn, record)
+					else
+						return Promise.resolve(id: id, record: record, original: original)
+
+		if fn.done
+			return Promise.resolve(id: id, record: record, original: original)
+		else
+			return recurse(fn, record)
 
 
 
