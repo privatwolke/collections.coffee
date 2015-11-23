@@ -17,7 +17,7 @@
     "time-grunt": "^1.2.2"
   },
   "engines": {
-    "node": ">=0.10.0"
+    "node": ">=0.11.0"
   },
   "scripts": {
     "test": "grunt build test"
