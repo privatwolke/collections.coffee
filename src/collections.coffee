@@ -59,12 +59,12 @@ class Database
 			resolve(true)
 
 
-	__addFilters: (id, record) ->
-		DBUtils.applyFilters(id, record, @filters.in)
+	__addFilters: (id, record, useFilters = true) ->
+		DBUtils.applyFilters(id, record, @filters.in, useFilters)
 
 
-	__removeFilters: (id, record) ->
-		DBUtils.applyFilters(id, record, @filters.out)
+	__removeFilters: (id, record, useFilters = true) ->
+		DBUtils.applyFilters(id, record, @filters.out, useFilters)
 
 
 
@@ -90,11 +90,11 @@ class Collection
 		@database.commit(@name)
 
 
-	all: ->
+	all: (filter = true) ->
 		new Promise (resolve) =>
 			promises = []
 			for id, record of @database.data[@name].records
-				promises.push @database.__removeFilters(id, record)
+				promises.push @database.__removeFilters(id, record, filter)
 					.then (result) ->
 						return {
 							"id": parseInt(result.id)
@@ -112,26 +112,26 @@ class Collection
 			resolve(@indices[indexSpec])
 
 
-	get: (id) ->
+	get: (id, filter = true) ->
 		new Promise (resolve) =>
 			record = DBUtils.clone(@database.data[@name].records[id])
 
 			if DBUtils.isEmpty(record)
 				resolve(null)
 			else
-				@database.__removeFilters(id, record)
+				@database.__removeFilters(id, record, filter)
 					.then (result) ->
 						resolve(id: result.id, record: result.record)
 
 
-	add: (record) ->
+	add: (record, filter = true) ->
 		new Promise (resolve) =>
 			records = DBUtils.toArray(record)
 			promises = []
 			ids = []
 
 			for r in records
-				promises.push @database.__addFilters(@id(), DBUtils.clone(r))
+				promises.push @database.__addFilters(@id(), DBUtils.clone(r), filter)
 					.then (result) =>
 						id = result.id
 						@database.data[@name].records[id] = result.record
@@ -150,7 +150,7 @@ class Collection
 					resolve(if ids.length is 1 then ids[0] else ids)
 
 
-	update: (record) ->
+	update: (record, filter = true) ->
 		new Promise (resolve, reject) =>
 			id = record.id
 			record = record.record
@@ -163,7 +163,7 @@ class Collection
 			if not @database.data[@name].records[id]?
 				reject(new Error("Can't update this record. It's not in the database."))
 
-			@database.__addFilters(id, DBUtils.clone(record))
+			@database.__addFilters(id, DBUtils.clone(record), filter)
 				.then (result) =>
 					@database.data[@name].records[result.id] = result.record
 					# update all indices
@@ -327,7 +327,7 @@ class DBUtils
 		else
 			return [o]
 
-	@applyFilters = (id, record, fns) ->
+	@applyFilters = (id, record, fns, useFilters) ->
 		fns = iterator(fns)
 		fn = fns.next()
 		original = DBUtils.clone(record)
@@ -341,7 +341,7 @@ class DBUtils
 					else
 						return Promise.resolve(id: id, record: record, original: original)
 
-		if fn.done
+		if fn.done or not useFilters
 			return Promise.resolve(id: id, record: record, original: original)
 		else
 			return recurse(fn, record)
