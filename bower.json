@@ -1,0 +1,23 @@
+{
+  "name": "collections.coffee",
+  "version": "0.1.0",
+  "homepage": "https://github.com/privatwolke/collections.coffee",
+  "authors": [
+    "Stephan Klein"
+  ],
+  "description": "A NoSQL solution written in CoffeeScript",
+  "main": [
+    "build/collections.js",
+		"build/collections-jose.js"
+  ],
+  "keywords": [
+    "nosql", "coffeescript", "localStorage", "database", "promises"
+  ],
+  "license": "MIT",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "spec"
+  ]
+}
